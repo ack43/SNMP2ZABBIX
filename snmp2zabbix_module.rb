@@ -64,14 +64,18 @@ module SNMP2Zabbix
 		mib_path = File.expand_path("..", mib_file).to_s
 		mibs_env = 'MIBS="+' + mib_file + '"'
 		mibdirs_env = 'MIBDIRS="+' + File.expand_path("..", mib_file).to_s + ':' + mib_path + '"'
-		mib2c_command =  "#{mibs_env} #{mibdirs_env} mib2c -c #{snmp2zabbix_conf} #{base_oid}"
+		mib2c_command = "#{mibs_env} #{mibdirs_env} mib2c -c #{snmp2zabbix_conf} #{base_oid}"
+		# mib2c_command = "pwd"
 		return mib2c_command
 	end
 
 	def self.get_mib2c_data(mib_file, base_oid, mibdirs: '', snmp2zabbix_conf: get_snmp2zabbix_conf)
-		mib2c_data = IO.popen(get_mib2c_command(mib_file, base_oid, mibdirs: mibdirs, snmp2zabbix_conf: snmp2zabbix_conf)) { |f|
-			f.read
-		} rescue ''
+		mib2c_data = ''
+		IO.popen(get_mib2c_command(mib_file, base_oid, mibdirs: mibdirs, snmp2zabbix_conf: snmp2zabbix_conf)) { |f|
+			mib2c_data = f.read
+		} rescue nil
+		puts 'mib2c_data'
+		puts mib2c_data
 		return mib2c_data
 	end
 
