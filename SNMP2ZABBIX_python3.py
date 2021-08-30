@@ -13,13 +13,19 @@
 # limitations under the License.
 
 import sys
+import subprocess
 import os
 import re
 from io import StringIO
 import csv
 
+local_snmp2zabbix_conf = os.path.dirname(os.path.abspath(__file__)) + '/snmp2zabbix.conf'
+snmp2zabbix_conf = local_snmp2zabbix_conf
+
+
 if(not os.path.exists("snmp2zabbix.conf")):
-    MIB2C_CONFIG = """#Copyright 2020 Sean Bradley https://sbcode.net/zabbix/
+    if(not os.path.exists(local_snmp2zabbix_conf)):
+        MIB2C_CONFIG = """#Copyright 2020 Sean Bradley https://sbcode.net/zabbix/
 #Licensed under the Apache License, Version 2.0
 @open -@
 @foreach $s scalar@
@@ -45,16 +51,26 @@ if(not os.path.exists("snmp2zabbix.conf")):
 @end@
 """
 
-    with open("snmp2zabbix.conf", "w") as mib2c_config_file:
-        mib2c_config_file.write(MIB2C_CONFIG)
+        with open("snmp2zabbix.conf", "w") as mib2c_config_file:
+            mib2c_config_file.write(MIB2C_CONFIG)
+            snmp2zabbix_conf = 'snmp2zabbix.conf'
+else:
+    snmp2zabbix_conf = 'snmp2zabbix.conf'
 
 
 MIB_FILE = sys.argv[1]
 BASE_OID = sys.argv[2]
-MIB2C_DATA = os.popen('env MIBS="+' + MIB_FILE +
-                      '" mib2c -c snmp2zabbix.conf ' + BASE_OID).read()
-# print(MIB2C_DATA)
-# exit()
+################################
+# mib2c_command = 'env MIBS="+' + MIB_FILE + '" mib2c -c ' + snmp2zabbix_conf + ' ' + BASE_OID
+# MIB2C_DATA = os.popen(mib2c_command).read()
+## OR (python3)
+my_env = os.environ.copy()
+my_env["MIBS"] = "+' + MIB_FILE + '"
+MIB2C_DATA = subprocess.Popen('mib2c -c ' + snmp2zabbix_conf + ' ' + BASE_OID, env=my_env).read()
+################################
+
+print(MIB2C_DATA)
+exit()
 
 MIB_NAME = os.path.basename(MIB_FILE).split(".")[0].replace(" ", "_")
 SCALARS = []
@@ -78,8 +94,8 @@ def getDataType(s):
     dataType = "TEXT"
     if s.upper() in DATATYPES:
         dataType = DATATYPES[s.upper()]
-    else:
-        print("Unhandled data type [" + s + "] so assigning TEXT")
+    # else:
+    #     print("Unhandled data type [" + s + "] so assigning TEXT")
     if len(dataType) > 0:  # if data type is INTEGER or other unsigned int, then don't create the node since zabbix will assign it the default which is already unsigned int
         return dataType
     else:
@@ -97,12 +113,13 @@ for l in it:
     description = ""
     if groups is not None:
         if groups.group(1) is not None:
-            description = groups.group(1).encode('string_escape')
-            description = description.replace('"', '')
-            description = description.replace('\\n', '&#13;')
-            description = description.replace('<', '&lt;')
-            description = description.replace('>', '&gt;')
-            description = re.sub(r"\s\s+", " ", description)
+            # description = groups.group(1).encode('string_escape')
+            description = groups.group(1).encode('unicode_escape') # python3
+            description = description.replace(b'"', b'')
+            description = description.replace(b'\\n', b'&#13;')
+            description = description.replace(b'<', b'&lt;')
+            description = description.replace(b'>', b'&gt;')
+            description = re.sub(r"\s\s+", ' ', str(description, 'utf-8'))
 
     f = StringIO(u'' + line + '')
     reader = csv.reader(f, delimiter=',')
@@ -110,15 +127,15 @@ for l in it:
         if len(row) > 0:
             try:
                 if row[0] == "scalar":
-                    print("scaler:\t" + row[4].strip() + "::" +
-                          row[1].strip() + "\t" + row[3].strip() + ".0")
+                    # print("scaler:\t" + row[4].strip() + "::" +
+                    #       row[1].strip() + "\t" + row[3].strip() + ".0")
                     scalar = [row[4].strip() + "::" + row[1].strip(), row[3].strip() +
                               ".0", getDataType(row[2].strip()), description]
                     SCALARS.append(scalar)
                     LAST_ENUM_NAME = row[4].strip() + "::" + row[1].strip()
                 elif row[0] == "table":
-                    print("table:\t" + row[4].strip() + "::" +
-                          row[1].strip() + "\t" + row[3].strip())
+                    # print("table:\t" + row[4].strip() + "::" +
+                    #       row[1].strip() + "\t" + row[3].strip())
                     discovery_rule = [
                         row[4].strip() + "::" + row[1].strip(), row[3].strip(), [], description]
                     if not row[4].strip() + "::" + row[1].strip() in DISCOVERY_RULES:
@@ -129,22 +146,22 @@ for l in it:
                     LAST_DISCOVERY_RULE_NAME = row[4].strip(
                     ) + "::" + row[1].strip()
                 elif row[0] == "enum":
-                    print("enum:\t" + row[1].strip() + "=" + row[2].strip())
+                    # print("enum:\t" + row[1].strip() + "=" + row[2].strip())
                     if LAST_ENUM_NAME not in ENUMS:
                         ENUMS[LAST_ENUM_NAME] = []
                     ENUMS[LAST_ENUM_NAME].append(
                         [row[1].strip(), row[2].strip()])
                     #print("enum " + LAST_ENUM_NAME + " " + row[1].strip() + " " + row[2].strip())
                 elif row[0] == "index":
-                    print(
-                        "index:\t" + row[4].strip() + "::" + row[1].strip() + "\t" + row[3].strip())
+                    # print(
+                    #     "index:\t" + row[4].strip() + "::" + row[1].strip() + "\t" + row[3].strip())
                     if int(row[7]) == 1:
                         LAST_ENUM_NAME = row[4].strip() + "::" + row[1].strip()
                     else:
                         LAST_ENUM_NAME = row[4].strip() + "::" + row[1].strip()
                 elif row[0] == "nonindex":
-                    print(
-                        "nonindex:\t" + row[4].strip() + "::" + row[1].strip() + "\t" + row[3].strip())
+                    # print(
+                    #     "nonindex:\t" + row[4].strip() + "::" + row[1].strip() + "\t" + row[3].strip())
                     if int(row[7]) == 1:
                         # print(row)
                         #print("is an enum title : " + row[4].strip() + "::" + row[1].strip())
@@ -191,6 +208,7 @@ for l in it:
                 print("Exception : %s : %s " % (e, row))
 
 
+# <description>Created By Sean Bradley's SNMP2ZABBIX.py at https://github.com/Sean-Bradley/SNMP2ZABBIX</description>
 XML = """<?xml version="1.0" encoding="UTF-8"?>
 <zabbix_export>
     <version>4.4</version>
@@ -203,7 +221,7 @@ XML = """<?xml version="1.0" encoding="UTF-8"?>
                     <name>""" + MIB_NAME + """</name>
                 </application>
             </applications>
-            <description>Created By Sean Bradley's SNMP2ZABBIX.py at https://github.com/Sean-Bradley/SNMP2ZABBIX</description>
+            <description>Created By SNMP2ZABBIX.py at https://github.com/ack43/SNMP2ZABBIX</description>
             <groups>
                 <group>
                     <name>Templates</name>
@@ -212,7 +230,8 @@ XML = """<?xml version="1.0" encoding="UTF-8"?>
 """
 
 # SCALARS
-if SCALARS.count > 0:
+# if SCALARS.count > 0:
+if len(SCALARS) > 0:
     XML += """            <items>
 """
 for s in SCALARS:
@@ -238,7 +257,8 @@ for s in SCALARS:
                     <status>DISABLED</status>
                 </item>
 """
-if SCALARS.count > 0:
+# if SCALARS.count > 0:
+if len(SCALARS) > 0:
     XML += """            </items>
 """
 
@@ -342,10 +362,6 @@ if len(ENUMS):
 # Finish the XML
 XML += "</zabbix_export>"
 
-# # print(XML)
-# with open("template_" + MIB_NAME + ".xml", "w") as xml_file:
-#     xml_file.write(XML)
-
 if len(sys.argv) < 4:
     with open("template_" + MIB_NAME + ".xml", "w") as xml_file:
         xml_file.write(XML)
@@ -358,4 +374,5 @@ else:
         with open(sys.argv[3], "w") as _file:
             _file.write(XML)
 
-print("Done")
+# print("Done")
+# return 0
