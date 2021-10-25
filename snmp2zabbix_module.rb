@@ -360,7 +360,7 @@ module SNMP2Zabbix
 												end #dr[2].each do |item_proto|
 											end # item_prototypes
 
-											discovery_rule.send :snmp_oid, "discovery[#{snmp_oids[...-1]}]" unless snmp_oids.empty?
+											discovery_rule.send :snmp_oid, "discovery[#{snmp_oids[0...-1]}]" unless snmp_oids.empty?
 										end#@discovery_rules[name].each do |dr|
 									end # discovery_rule
 								end #@discovery_rules.keys.each do |name|
