@@ -258,7 +258,7 @@ module SNMP2Zabbix
 		# <description>Created By Sean Bradley's SNMP2ZABBIX.py at https://github.com/Sean-Bradley/SNMP2ZABBIX</description>
 		Nokogiri::XML::Builder.new do |xml|
 			xml.send(:zabbix_export) do |zabbix_export|
-				zabbix_export.send :version, 5.4
+				zabbix_export.send :version, 5.2
 				zabbix_export.send :templates do |templates|
 					templates.send :template do |template|
 						template.send :template, "Template SNMP #{removeColons(@mib_name)}"
