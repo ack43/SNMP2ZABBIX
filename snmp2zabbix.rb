@@ -1,5 +1,5 @@
 # Ported from python
-if ARGV.count < 3
+if ARGV.count < 2
 	puts "need MIB file and base OID"
 	return 1
 end
