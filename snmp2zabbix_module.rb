@@ -56,14 +56,14 @@ module SNMP2Zabbix
 		else
 			snmp2zabbix_conf = 'snmp2zabbix.conf'
 		end
-
+		
 		return snmp2zabbix_conf
 	end
 
 	def self.get_mib2c_command(mib_file, base_oid, mibdirs: '', snmp2zabbix_conf: get_snmp2zabbix_conf)
 		mib_path = File.expand_path("..", mib_file).to_s
 		mibs_env = 'MIBS="+' + mib_file + '"'
-		mibdirs_env = 'MIBDIRS="+' + File.expand_path("..", mib_file).to_s + ':' + mib_path + '"'
+		mibdirs_env = 'MIBDIRS="+' + File.expand_path("..", mib_file).to_s + ' =>' + mib_path + '"'
 		mib2c_command = "#{mibs_env} #{mibdirs_env} mib2c -c #{snmp2zabbix_conf} #{base_oid}"
 		# mib2c_command = "pwd"
 		return mib2c_command
@@ -92,7 +92,7 @@ module SNMP2Zabbix
 		data_type.size > 0 ? data_type : nil
 	end
 
-	def self.removeColons(s); s.gsub("::", " "); end
+	def self.remove_colons(s); s.gsub("::", " "); end
 
 	def self.get_last_enum_name(row); row[4].strip() + "::" + row[1].strip(); end
 
@@ -247,6 +247,140 @@ module SNMP2Zabbix
 
 	end
 
+
+	def self.construct_json(scalars: [], enums: {}, discovery_rules: {}, mib_name: '' )
+		
+		# TODO
+		@scalars = scalars
+		@enums = enums
+		@discovery_rules = discovery_rules
+		@mib_name = mib_name
+		
+		
+		scalars_json = []
+		if @scalars&.size > 0
+			scalars_json = @scalars.map do |s|
+				{
+					'name' => s[0],
+					'type' => "SNMPV2",
+					'snmp_community' => "{$SNMP_COMMUNITY}",
+					'snmp_oid' => s[1],
+					'key' => s[1],
+
+					'value_type' => s[2],
+
+					'description' => s[3],
+					'delay' => "1h",
+					'history' => "2w",
+					'trends' => "0",
+
+					'applications' => [
+						{'name' => @mib_name}
+					],
+					'status' => "DISABLED",
+				}.compact
+			end
+		end
+
+
+		discovery_rules_json = [] 
+		if @discovery_rules&.size > 0
+			snmp_oids = ""
+
+			discovery_rules_json = @discovery_rules.keys.map do |name|
+				dr = @discovery_rules[name]
+				{
+					'name' => name,
+					'description' => dr[3],
+					'delay' => 3600,
+					'key' => dr[1],
+					'port' => "{$SNMP_PORT}",
+					'snmp_community' => "{$SNMP_COMMUNITY}",
+					'type' => "SNMPV2",
+
+					'item_prototypes' => dr[2].map { |item_proto|
+						snmpoid2_append = "{##{item_proto[0].split("::")[1].upcase}},#{item_proto[1]},"
+						snmp_oids += snmpoid2_append if (snmp_oids + snmpoid2_append).size < 501
+						
+						{
+							'name' => "#{item_proto[0]}[{#SNMPINDEX}]",
+							'type' => "SNMPV2",
+							'description' => item_proto[3],
+
+							'applications' => [
+								{'name' => @mib_name}
+							],
+							
+							'port' => "{$SNMP_PORT}",
+							'snmp_community' => "{$SNMP_COMMUNITY}",
+							'key' => "#{item_proto[1]}[{#SNMPINDEX}]",
+							'snmp_oid' => "#{item_proto[1]}.{#SNMPINDEX}",
+
+							'delay' => "1h",
+							'history' => "2w",
+							'trends' => "0",
+
+							'value_type' => item_proto[2],
+
+							'valuemap' => {
+								'name' => item_proto[4]
+							}
+						}.compact # </item_prototype>
+					}, # item_prototypes: dr[2].map { |item_proto|
+
+					'snmp_oid' => (snmp_oids.empty? ? nil : "discovery[#{snmp_oids[0...-1]}]") 
+				}.compact # </discovery_rule>
+			end #discovery_rules_json = @discovery_rules.keys.map do |name|
+		end
+
+		json = {
+			'zabbix_export' => {
+				'version' => '5.2',
+				'templates' => [
+					{
+						'template' => "Template SNMP #{remove_colons(@mib_name)}",
+						'name' => "Template SNMP #{remove_colons(@mib_name)}",
+						'applications' => [
+							{'name' => @mib_name}
+						],
+						'description' => "Created By SNMP2ZABBIX.rb at https://github.com/ack43/SNMP2ZABBIX",
+						'groups' => [
+							{'name' => "Templates"}
+						],
+
+						'items' => scalars_json,
+
+						'macros' => [
+							{
+								'macro' => "{$SNMP_PORT}",
+								'value' => 161
+							}
+						],
+
+						'discovery_rules' => discovery_rules_json
+
+					}
+				] # templates: [
+			}
+		}
+
+		return json
+
+	end
+
+	def self.construct_yaml(scalars: [], enums: {}, discovery_rules: {}, mib_name: '' )
+
+		require 'yaml'
+		params = {
+			scalars: scalars,
+			enums: enums,
+			discovery_rules: discovery_rules,
+			mib_name: mib_name
+		}
+		self.construct_json(params).to_yaml
+	end
+
+
 	def self.construct_xml(scalars: [], enums: {}, discovery_rules: {}, mib_name: '' )
 
 		# TODO
@@ -261,8 +395,8 @@ module SNMP2Zabbix
 				zabbix_export.send :version, 5.2
 				zabbix_export.send :templates do |templates|
 					templates.send :template do |template|
-						template.send :template, "Template SNMP #{removeColons(@mib_name)}"
-						template.send :name, "Template SNMP #{removeColons(@mib_name)}"
+						template.send :template, "Template SNMP #{remove_colons(@mib_name)}"
+						template.send :name, "Template SNMP #{remove_colons(@mib_name)}"
 						template.send :applications do |applications|
 							applications.send :application do |application|
 								application.send :name, @mib_name
@@ -282,8 +416,7 @@ module SNMP2Zabbix
 										item.send :name, s[0]
 										item.send :type, "SNMPV2"
 										item.send :snmp_community, "{$SNMP_COMMUNITY}"
-										item.send :snmp_oid, "SNMPV2"
-										item.send :type, s[1]
+										item.send :snmp_oid, s[1]
 										item.send :key, s[1]
 										
 										item.send :value_type, s[2] if s[2]
@@ -328,7 +461,7 @@ module SNMP2Zabbix
 											discovery_rule.send :item_prototypes do |item_prototypes|
 												dr[2].each do |item_proto|
 													item_prototypes.send :item_prototype do |item_prototype|
-														item_prototype.send :description, "#{item_proto[0]}[{#SNMPINDEX}]"
+														item_prototype.send :name, "#{item_proto[0]}[{#SNMPINDEX}]"
 														item_prototype.send :type, "SNMPV2"
 														item_prototype.send :description, item_proto[3]
 
@@ -339,8 +472,8 @@ module SNMP2Zabbix
 														end
 														item_prototype.send :port, "{$SNMP_PORT}"
 														item_prototype.send :snmp_community, "{$SNMP_COMMUNITY}"
-														item_prototype.send :key, "#{item_prototype[1]}[{#SNMPINDEX}]"
-														item_prototype.send :snmp_oid, "#{item_prototype[1]}.{#SNMPINDEX}"
+														item_prototype.send :key, "#{item_proto[1]}[{#SNMPINDEX}]"
+														item_prototype.send :snmp_oid, "#{item_proto[1]}.{#SNMPINDEX}"
 
 														item_prototype.send :delay, "1h"
 														item_prototype.send :history, "2w"
