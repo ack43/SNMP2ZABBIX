@@ -258,8 +258,9 @@ module SNMP2Zabbix
 		
 		
 		scalars_json = []
-		if @scalars&.size > 0
-			scalars_json = @scalars.map do |s|
+		# if @scalars&.size > 0
+		if @scalars&.size&.positive?
+			scalars_json = @scalars&.map do |s|
 				{
 					'name' => s[0],
 					'type' => "SNMPV2",
@@ -284,10 +285,10 @@ module SNMP2Zabbix
 
 
 		discovery_rules_json = [] 
-		if @discovery_rules&.size > 0
+		if @discovery_rules&.keys&.size&.positive?
 			snmp_oids = ""
 
-			discovery_rules_json = @discovery_rules.keys.map do |name|
+			discovery_rules_json = @discovery_rules&.keys&.map do |name|
 				dr = @discovery_rules[name]
 				{
 					'name' => name,
@@ -298,7 +299,7 @@ module SNMP2Zabbix
 					'snmp_community' => "{$SNMP_COMMUNITY}",
 					'type' => "SNMPV2",
 
-					'item_prototypes' => dr[2].map { |item_proto|
+					'item_prototypes' => dr[2]&.map { |item_proto|
 						snmpoid2_append = "{##{item_proto[0].split("::")[1].upcase}},#{item_proto[1]},"
 						snmp_oids += snmpoid2_append if (snmp_oids + snmpoid2_append).size < 501
 						
@@ -409,7 +410,8 @@ module SNMP2Zabbix
 							end
 						end
 
-						if @scalars&.size > 0
+						# if @scalars&.size > 0
+						if @scalars&.size&.positive?
 							template.send :items do |items|
 								@scalars.each do |s|
 									items.send :item do |item|
@@ -444,7 +446,8 @@ module SNMP2Zabbix
 							end
 						end
 
-						if @discovery_rules&.size > 0
+						# if @discovery_rules&.size > 0
+						if @discovery_rules&.size&.positive?
 							snmp_oids = ""
 							template.send :discovery_rules do |discovery_rules|
 								@discovery_rules.keys.each do |name|
