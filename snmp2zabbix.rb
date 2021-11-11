@@ -11,6 +11,13 @@ base_oid = ARGV[1].to_s
 
 mib_name = File.basename(mib_file).split(".")[0].gsub(" ", "_")
 
+output_file = ARGV[2]
+_format = if output_file
+	output_file.split(".").last
+else
+	"xml"
+end
+
 
 require_relative 'snmp2zabbix_module'
 include SNMP2Zabbix
@@ -18,12 +25,20 @@ include SNMP2Zabbix
 mib2c_data = SNMP2Zabbix.get_mib2c_data mib_file, base_oid, snmp2zabbix_conf: SNMP2Zabbix.get_snmp2zabbix_conf(__FILE__)
 mib2c_structure = SNMP2Zabbix.mib2c_data_scan mib2c_data
 mib2c_structure[:mib_name] = mib_name
-xml = SNMP2Zabbix.construct_xml **mib2c_structure
+# xml = SNMP2Zabbix.construct_xml **mib2c_structure
+output = case _format
+when 'yaml', 'yml'
+	SNMP2Zabbix.construct_yaml **mib2c_structure
+when 'json'
+	SNMP2Zabbix.construct_json **mib2c_structure
+when 'xml'
+	SNMP2Zabbix.construct_xml **mib2c_structure
+end
 
 
 if ARGV.count < 3
 	File.open("template_" + mib_name + ".xml", "w") do |xml_file|
-		xml_file.write(xml.to_xml)
+		xml_file.write(output.to_xml)
 	end
 
 elsif ARGV[2] == '-o'
@@ -31,7 +46,7 @@ elsif ARGV[2] == '-o'
 
 else
 	File.open(ARGV[2], "w") do |_file|
-		_file.write(xml.to_xml)
+		_file.write(output)
 	end
 end
 

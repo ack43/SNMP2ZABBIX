@@ -1,5 +1,9 @@
 require 'nokogiri'
 require 'csv'
+require 'date'
+
+require 'securerandom'
+def get_uuid; SecureRandom.uuid.gsub("-", ""); end
 
 module SNMP2Zabbix
 	
@@ -100,6 +104,8 @@ module SNMP2Zabbix
 
 	def self.mib2c_data_scan(mib2c_data)
 
+		# puts mib2c_data
+
 		@scalars = []
 		@enums = {}
 		@last_enum_name = ""  # the one that is being built now
@@ -110,13 +116,13 @@ module SNMP2Zabbix
 
 		it.each do |l|
 			line = l[0]
-			puts "line"
-			puts line
-			groups = line.scan /.*("[^"]*")/
+			# puts "line"
+			# puts line
+			groups = line.scan /.*\"([^\"]*)\"/
 			description = ""
 			if groups
 				if groups[0] && groups[0][0]
-					description = groups[0][0].gsub('"', '').gsub('\\n', '&#13;').gsub('<', '&lt;').gsub('>', '&gt;').gsub(/\s\s+/, ' ')
+					description = groups[0][0].gsub('"', "").gsub('\\n', '&#13;').gsub('<', '&lt;').gsub('>', '&gt;').gsub(/\s+/, ' ').strip
 				end
 		
 				# reader = line.split(",").map(&:strip)
@@ -130,7 +136,8 @@ module SNMP2Zabbix
 					# puts row.inspect
 					if row.size > 0
 						begin
-							if row[0] == "scalar"
+							case row[0]
+							when "scalar"
 								# puts 'scalar'
 								# print("scaler:\t" + row[4].strip() + "::" +
 								#       row[1].strip() + "\t" + row[3].strip() + ".0")
@@ -142,8 +149,8 @@ module SNMP2Zabbix
 									description
 								]
 								@scalars << scalar
-		
-							elsif row[0] == "table"
+
+							when "table"
 								# print("table:\t" + row[4].strip() + "::" +
 								#       row[1].strip() + "\t" + row[3].strip())
 								@last_enum_name = get_last_enum_name(row)
@@ -153,22 +160,24 @@ module SNMP2Zabbix
 									[], 
 									description
 								]
-								@discovery_rules[@last_enum_name] = [] unless @discovery_rules.include?(@last_enum_name)
+								# @discovery_rules[@last_enum_name] = [] unless @discovery_rules.include?(@last_enum_name)
+								@discovery_rules[@last_enum_name] ||= []
 								@discovery_rules[@last_enum_name] << discovery_rule
 								@last_discovery_rule_name = @last_enum_name
 		
-							elsif row[0] == "enum"
+							when "enum"
 								# print("enum:\t" + row[1].strip() + "=" + row[2].strip())
-								@enums[@last_enum_name] = [] unless @enums.include? @last_enum_name
+								# @enums[@last_enum_name] = [] unless @enums.include? @last_enum_name
+								@enums[@last_enum_name] ||= []
 								@enums[@last_enum_name] << [row[1].strip(), row[2].strip()]
 								#print("enum " + @last_enum_name + " " + row[1].strip() + " " + row[2].strip())
 		
-							elsif row[0] == "index"
+							when "index"
 								# print(
 								#     "index:\t" + row[4].strip() + "::" + row[1].strip() + "\t" + row[3].strip())
 								@last_enum_name = get_last_enum_name(row)
 		
-							elsif row[0] == "nonindex"
+							when "nonindex"
 								# print(
 								#     "nonindex:\t" + row[4].strip() + "::" + row[1].strip() + "\t" + row[3].strip())
 								if row[7].to_i == 1
@@ -194,41 +203,42 @@ module SNMP2Zabbix
 												description
 											]
 											@discovery_rules[@last_discovery_rule_name] << discovery_rule
-											@discovery_rules[@last_discovery_rule_name][0][2] << column
+										end
+									end
+									@discovery_rules[@last_discovery_rule_name][0][2] << column
 		
-										else
-											# print(row)
-											column = [
-												get_last_enum_name(row),
+								else
+									# print(row)
+									column = [
+										get_last_enum_name(row),
+										row[3].strip(), 
+										get_data_type(row[2].strip()), 
+										description
+									]
+									# print(description)
+									# print(len(@discovery_rules[@last_discovery_rule_name][0][2]))
+									if @last_discovery_rule_name.empty?
+										@last_discovery_rule_name = row[4].strip() + "::" + row[5].strip()
+										unless @discovery_rules.include? @last_discovery_rule_name
+											@discovery_rules[@last_discovery_rule_name] = []
+											#print("need to create discovery rule")
+											discovery_rule = [
+												row[4].strip() + "::" + row[5].strip(), 
 												row[3].strip(), 
-												get_data_type(row[2].strip()), 
+												[], 
 												description
 											]
-											# print(description)
-											# print(len(@discovery_rules[@last_discovery_rule_name][0][2]))
-											if @last_discovery_rule_name.blank?
-												@last_discovery_rule_name = row[4].strip() + "::" + row[5].strip()
-												unless @discovery_rules.include? @last_discovery_rule_name
-													@discovery_rules[@last_discovery_rule_name] = []
-													#print("need to create discovery rule")
-													discovery_rule = [
-														row[4].strip() + "::" + row[5].strip(), 
-														row[3].strip(), 
-														[], 
-														description
-													]
-													@discovery_rules[@last_discovery_rule_name] << discovery_rule
-													@discovery_rules[@last_discovery_rule_name][0][2] << column
-												end
-											end
+											@discovery_rules[@last_discovery_rule_name] << discovery_rule
 										end
-										# else:
-										#     print("not handled row")
-										#     print(row)
 									end
+									@discovery_rules[@last_discovery_rule_name][0][2] << column
 								end
 							end
-						rescue Exceprion => ex  # KeyError:
+							# else:
+							#     print("not handled row")
+							#     print(row)
+							
+						rescue Exception => ex  # KeyError:
 							#print("KeyError Exception.\nThis tends to happen if your MIB file cannot be found. Check that it exists. Or, your Base OID may be to specific and not found within the MIB file you are converting.\nChoose a Base OID closer to the root.\nEg, If you used 1.3.6.1.4.1, then try 1.3.6.1.4.\nIf the error still occurs, then try 1.3.6.1.\nNote that using a Base OID closer to the root will result in larger template files being generated.")
 							# exit()
 							puts "Exception : #{ex.inspect}"
@@ -253,7 +263,12 @@ module SNMP2Zabbix
 		# TODO
 		@scalars = scalars
 		@enums = enums
-		@discovery_rules = discovery_rules
+		puts 
+		puts 
+		puts 
+		puts 
+		# puts (@discovery_rules = discovery_rules)
+		puts @discovery_rules[@discovery_rules.keys.first][0][2].size
 		@mib_name = mib_name
 		
 		
@@ -262,9 +277,11 @@ module SNMP2Zabbix
 		if @scalars&.size&.positive?
 			scalars_json = @scalars&.map do |s|
 				{
+					'uuid' => get_uuid,
 					'name' => s[0],
-					'type' => "SNMPV2",
-					'snmp_community' => "{$SNMP_COMMUNITY}",
+					# 'type' => "SNMPV2",
+					'type' => "SNMP_AGENT",
+					# 'snmp_community' => "{$SNMP_COMMUNITY}",
 					'snmp_oid' => s[1],
 					'key' => s[1],
 
@@ -275,9 +292,9 @@ module SNMP2Zabbix
 					'history' => "2w",
 					'trends' => "0",
 
-					'applications' => [
-						{'name' => @mib_name}
-					],
+					# 'applications' => [
+					# 	{'name' => @mib_name}
+					# ],
 					'status' => "DISABLED",
 				}.compact
 			end
@@ -289,31 +306,40 @@ module SNMP2Zabbix
 			snmp_oids = ""
 
 			discovery_rules_json = @discovery_rules&.keys&.map do |name|
-				dr = @discovery_rules[name]
+				#TODO: WTF
+				# puts @discovery_rules[name][0][2].size
+				dr = @discovery_rules[name][0]
 				{
+					'uuid' => get_uuid,
 					'name' => name,
 					'description' => dr[3],
-					'delay' => 3600,
+					'delay' => '3600',
 					'key' => dr[1],
-					'port' => "{$SNMP_PORT}",
-					'snmp_community' => "{$SNMP_COMMUNITY}",
-					'type' => "SNMPV2",
+					# 'snmp_oid' => dr[1],
+					# 'port' => "{$SNMP_PORT}",
+					# 'snmp_community' => "{$SNMP_COMMUNITY}",
+					# 'type' => "SNMPV2",
+					'type' => "SNMP_AGENT",
 
 					'item_prototypes' => dr[2]&.map { |item_proto|
 						snmpoid2_append = "{##{item_proto[0].split("::")[1].upcase}},#{item_proto[1]},"
 						snmp_oids += snmpoid2_append if (snmp_oids + snmpoid2_append).size < 501
-						
+
+						valuemap = item_proto[4] ? {'name' => item_proto[4]} : nil
+
 						{
+							'uuid' => get_uuid,
 							'name' => "#{item_proto[0]}[{#SNMPINDEX}]",
-							'type' => "SNMPV2",
+							# 'type' => "SNMPV2",
+							'type' => "SNMP_AGENT",
 							'description' => item_proto[3],
 
-							'applications' => [
-								{'name' => @mib_name}
-							],
+							# 'applications' => [
+							# 	{'name' => @mib_name}
+							# ],
 							
-							'port' => "{$SNMP_PORT}",
-							'snmp_community' => "{$SNMP_COMMUNITY}",
+							# 'port' => "{$SNMP_PORT}",
+							# 'snmp_community' => "{$SNMP_COMMUNITY}",
 							'key' => "#{item_proto[1]}[{#SNMPINDEX}]",
 							'snmp_oid' => "#{item_proto[1]}.{#SNMPINDEX}",
 
@@ -323,27 +349,45 @@ module SNMP2Zabbix
 
 							'value_type' => item_proto[2],
 
-							'valuemap' => {
-								'name' => item_proto[4]
-							}
+							'valuemap' => valuemap
 						}.compact # </item_prototype>
 					}, # item_prototypes: dr[2].map { |item_proto|
 
-					'snmp_oid' => (snmp_oids.empty? ? nil : "discovery[#{snmp_oids[0...-1]}]") 
+					# 'snmp_oid' => (snmp_oids.empty? ? nil : "discovery[#{snmp_oids[0...-1]}]") 
+					'snmp_oid' => (snmp_oids.empty? ? dr[1] : "discovery[#{snmp_oids[0...-1]}]") 
 				}.compact # </discovery_rule>
 			end #discovery_rules_json = @discovery_rules.keys.map do |name|
 		end
 
+		valuemaps_json = []
+		if @enums&.keys&.size&.positive?
+			valuemaps_json = @enums&.keys&.map { |name|
+				{
+					'uuid' => get_uuid,
+					"name" => name,
+					"mappings" => @enums[name].map { |mapping|
+						{
+							"newvalue" => mapping[0],
+							"value" => mapping[1] 
+						}
+					}
+				}
+			}
+		end
+
 		json = {
 			'zabbix_export' => {
-				'version' => '5.2',
+				'version' => '5.4',
+				'date' => Time.now.strftime("%FT%TZ"),
+
 				'templates' => [
 					{
+						'uuid' => get_uuid,
 						'template' => "Template SNMP #{remove_colons(@mib_name)}",
 						'name' => "Template SNMP #{remove_colons(@mib_name)}",
-						'applications' => [
-							{'name' => @mib_name}
-						],
+						# 'applications' => [
+						# 	{'name' => @mib_name}
+						# ],
 						'description' => "Created By SNMP2ZABBIX.rb at https://github.com/ack43/SNMP2ZABBIX",
 						'groups' => [
 							{'name' => "Templates"}
@@ -354,11 +398,13 @@ module SNMP2Zabbix
 						'macros' => [
 							{
 								'macro' => "{$SNMP_PORT}",
-								'value' => 161
+								'value' => '161'
 							}
 						],
 
-						'discovery_rules' => discovery_rules_json
+						'discovery_rules' => discovery_rules_json,
+
+						'valuemaps' => valuemaps_json
 
 					}
 				] # templates: [
@@ -378,7 +424,7 @@ module SNMP2Zabbix
 			discovery_rules: discovery_rules,
 			mib_name: mib_name
 		}
-		self.construct_json(params).to_yaml
+		construct_json(**params).to_yaml
 	end
 
 
@@ -455,7 +501,7 @@ module SNMP2Zabbix
 										discovery_rule.send :name, name
 										@discovery_rules[name].each do |dr|
 											discovery_rule.send :description, dr[3]
-											discovery_rule.send :delay, 3600
+											discovery_rule.send :delay, '3600'
 											discovery_rule.send :key, dr[1]
 											discovery_rule.send :port, "{$SNMP_PORT}"
 											discovery_rule.send :snmp_community, "{$SNMP_COMMUNITY}"
