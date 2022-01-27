@@ -242,6 +242,7 @@ module SNMP2Zabbix
 							#print("KeyError Exception.\nThis tends to happen if your MIB file cannot be found. Check that it exists. Or, your Base OID may be to specific and not found within the MIB file you are converting.\nChoose a Base OID closer to the root.\nEg, If you used 1.3.6.1.4.1, then try 1.3.6.1.4.\nIf the error still occurs, then try 1.3.6.1.\nNote that using a Base OID closer to the root will result in larger template files being generated.")
 							# exit()
 							puts "Exception : #{ex.inspect}"
+							puts "Backtrace : #{ex.backtrace}"
 						end
 					end
 				end
@@ -263,12 +264,13 @@ module SNMP2Zabbix
 		# TODO
 		@scalars = scalars
 		@enums = enums
-		puts 
-		puts 
-		puts 
-		puts 
-		# puts (@discovery_rules = discovery_rules)
-		puts @discovery_rules[@discovery_rules.keys.first][0][2].size
+		@discovery_rules = {} #discovery_rules
+		# puts 
+		# puts 
+		# puts 
+		# puts 
+		# # puts ()
+		# puts @discovery_rules[@discovery_rules.keys.first][0][2].size
 		@mib_name = mib_name
 		
 		
@@ -399,6 +401,10 @@ module SNMP2Zabbix
 							{
 								'macro' => "{$SNMP_PORT}",
 								'value' => '161'
+							},
+							{
+								'macro' => "{$SNMP_COMMUNITY}",
+								'value' => 'public'
 							}
 						],
 
