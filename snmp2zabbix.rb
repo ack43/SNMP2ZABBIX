@@ -12,37 +12,59 @@ base_oid = ARGV[1].to_s
 mib_name = File.basename(mib_file).split(".")[0].gsub(" ", "_")
 
 output_file = ARGV[2]
-_format = if output_file
+_format = if output_file && output_file != '-o'
 	output_file.split(".").last
 else
-	"xml"
+	"yaml"
 end
+
+
+mibdirs = ARGV[3..-1]
+puts mibdirs.inspect
 
 
 require_relative 'snmp2zabbix_module'
 include SNMP2Zabbix
 
-mib2c_data = SNMP2Zabbix.get_mib2c_data mib_file, base_oid, snmp2zabbix_conf: SNMP2Zabbix.get_snmp2zabbix_conf(__FILE__)
+mib2c_data = SNMP2Zabbix.get_mib2c_data mib_file, base_oid, mibdirs: mibdirs, snmp2zabbix_conf: SNMP2Zabbix.get_snmp2zabbix_conf(__FILE__)
 mib2c_structure = SNMP2Zabbix.mib2c_data_scan mib2c_data
+# puts 'mib2c_structure'
+# puts mib2c_structure.keys.map { |k| 
+# 	# puts
+# 	# puts mib2c_structure[k]
+# 	"#{k} -> #{mib2c_structure[k].length} (#{mib2c_structure[k].keys})" rescue 'niil' 
+# }.join(" ")
+# puts 
+# puts mib2c_structure[:discovery_rules]
+mib2c_structure[:discovery_rules].each_pair { |name, dr|
+	puts "#{name} - #{dr.last[2].size}"
+}
 mib2c_structure[:mib_name] = mib_name
 # xml = SNMP2Zabbix.construct_xml **mib2c_structure
+
+
 output = case _format
 when 'yaml', 'yml'
+	puts 'construct yaml'
 	SNMP2Zabbix.construct_yaml **mib2c_structure
 when 'json'
+	puts 'construct jspn'
 	SNMP2Zabbix.construct_json **mib2c_structure
 when 'xml'
+	puts 'construct xml'
 	SNMP2Zabbix.construct_xml **mib2c_structure
 end
+puts _format.inspect
 
 
 if ARGV.count < 3
 	File.open("template_" + mib_name + ".xml", "w") do |xml_file|
-		xml_file.write(output.to_xml)
+		xml_file.write(output&.to_xml)
 	end
 
 elsif ARGV[2] == '-o'
-	print(xml.to_xml)
+	puts output
+	# print(output&.to_xml)
 
 else
 	File.open(ARGV[2], "w") do |_file|

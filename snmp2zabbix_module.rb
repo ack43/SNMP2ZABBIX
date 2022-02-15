@@ -67,19 +67,24 @@ module SNMP2Zabbix
 	def self.get_mib2c_command(mib_file, base_oid, mibdirs: '', snmp2zabbix_conf: get_snmp2zabbix_conf)
 		mib_path = File.expand_path("..", mib_file).to_s
 		mibs_env = 'MIBS="+' + mib_file + '"'
-		mibdirs_env = 'MIBDIRS="+' + File.expand_path("..", mib_file).to_s + ' =>' + mib_path + '"'
+		mibdirs_env = 'MIBDIRS="+' + File.expand_path("..", mib_file).to_s + ':' + mibdirs + '"'
 		mib2c_command = "#{mibs_env} #{mibdirs_env} mib2c -c #{snmp2zabbix_conf} #{base_oid}"
 		# mib2c_command = "pwd"
 		return mib2c_command
 	end
 
 	def self.get_mib2c_data(mib_file, base_oid, mibdirs: '', snmp2zabbix_conf: get_snmp2zabbix_conf)
+		# puts 'get_mib2c_dataget_mib2c_data'
+		mibdirs = mibdirs.join(":") if mibdirs.is_a?(Array)
+		# puts mibdirs.inspect
 		mib2c_data = ''
-		IO.popen(get_mib2c_command(mib_file, base_oid, mibdirs: mibdirs, snmp2zabbix_conf: snmp2zabbix_conf)) { |f|
+		_mib2c = get_mib2c_command(mib_file, base_oid, mibdirs: mibdirs, snmp2zabbix_conf: snmp2zabbix_conf)
+		# puts _mib2c
+		IO.popen(_mib2c, "r") { |f|
 			mib2c_data = f.read
 		} rescue nil
-		puts 'mib2c_data'
-		puts mib2c_data
+		# puts 'mib2c_data'
+		# puts mib2c_data
 		return mib2c_data
 	end
 
@@ -98,12 +103,12 @@ module SNMP2Zabbix
 
 	def self.remove_colons(s); s.gsub("::", " "); end
 
-	def self.get_last_enum_name(row); row[4].strip() + "::" + row[1].strip(); end
+	def self.get_last_enum_name(row); row[4].strip + "::" + row[1].strip; end
 
 
 
 	def self.mib2c_data_scan(mib2c_data)
-
+		
 		# puts mib2c_data
 
 		@scalars = []
@@ -113,6 +118,7 @@ module SNMP2Zabbix
 		@last_discovery_rule_name = ""  # the one that is being built now
 
 		it = mib2c_data.scan /\*\*\* (.*?[^\*\*\*]*?) \*\*\*/sm
+		puts it.count
 
 		it.each do |l|
 			line = l[0]
@@ -126,7 +132,7 @@ module SNMP2Zabbix
 				end
 		
 				# reader = line.split(",").map(&:strip)
-				reader = CSV.new(line, liberal_parsing: true)
+				reader = CSV.new(line, liberal_parsing: true, col_sep: ',', quote_char: '"', headers: false)
 				# puts 'line'
 				# puts line.inspect
 				# puts 'reader'
@@ -138,27 +144,42 @@ module SNMP2Zabbix
 						begin
 							case row[0]
 							when "scalar"
+								# [%anchor%, 			%name%, 						%type%, 					%oid%, 										%module%,					%parent%, %subid%,		%enums%, 													%description% ]
+								# ["scalar", " swEquipmentCapacity", " char", " .1.3.6.1.4.1.171.12.11.1.1", " EQUIPMENT-MIB", " swEquipment", " 1",      " 1",       " \"Indicates the equipment capability supported in the system.\""]
+								
 								# puts 'scalar'
-								# print("scaler:\t" + row[4].strip() + "::" +
-								#       row[1].strip() + "\t" + row[3].strip() + ".0")
+								# print("scaler:\t" + row[4].strip + "::" +
+								#       row[1].strip + "\t" + row[3].strip + ".0")
 								@last_enum_name = get_last_enum_name(row)
 								scalar = [
 									@last_enum_name, 
 									"#{row[3].strip}.0", 
 									get_data_type(row[2].strip), 
-									description
+									description,
+									{
+										name: @last_enum_name,
+										oid: "#{row[3].strip}.0",
+										type: get_data_type(row[2].strip),
+										description: description
+									}
 								]
 								@scalars << scalar
 
 							when "table"
-								# print("table:\t" + row[4].strip() + "::" +
-								#       row[1].strip() + "\t" + row[3].strip())
+								# print("table:\t" + row[4].strip + "::" +
+								#       row[1].strip + "\t" + row[3].strip)
 								@last_enum_name = get_last_enum_name(row)
 								discovery_rule = [
 									@last_enum_name, 
-									row[3].strip(), 
+									row[3].strip, 
 									[], 
-									description
+									description,
+									{
+										name: @last_enum_name,
+										oid: "#{row[3].strip}.0",
+										array: [],
+										description: description
+									}
 								]
 								# @discovery_rules[@last_enum_name] = [] unless @discovery_rules.include?(@last_enum_name)
 								@discovery_rules[@last_enum_name] ||= []
@@ -166,39 +187,52 @@ module SNMP2Zabbix
 								@last_discovery_rule_name = @last_enum_name
 		
 							when "enum"
-								# print("enum:\t" + row[1].strip() + "=" + row[2].strip())
-								# @enums[@last_enum_name] = [] unless @enums.include? @last_enum_name
-								@enums[@last_enum_name] ||= []
-								@enums[@last_enum_name] << [row[1].strip(), row[2].strip()]
-								#print("enum " + @last_enum_name + " " + row[1].strip() + " " + row[2].strip())
+								 unless @last_enum_name.empty?
+									# print("enum:\t" + row[1].strip + "=" + row[2].strip)
+									# @enums[@last_enum_name] = [] unless @enums.include? @last_enum_name
+									@enums[@last_enum_name] ||= []
+									@enums[@last_enum_name] << [row[1].strip, row[2].strip, {
+										new_value: row[1].strip,
+										old_value: row[2].strip
+									}]
+									#print("enum " + @last_enum_name + " " + row[1].strip + " " + row[2].strip)
+								end
 		
 							when "index"
 								# print(
-								#     "index:\t" + row[4].strip() + "::" + row[1].strip() + "\t" + row[3].strip())
+								#     "index:\t" + row[4].strip + "::" + row[1].strip + "\t" + row[3].strip)
 								@last_enum_name = get_last_enum_name(row)
 		
 							when "nonindex"
+							# when "index", "nonindex"
 								# print(
-								#     "nonindex:\t" + row[4].strip() + "::" + row[1].strip() + "\t" + row[3].strip())
+								#     "nonindex:\t" + row[4].strip + "::" + row[1].strip + "\t" + row[3].strip)
 								if row[7].to_i == 1
 									# print(row)
-									#print("is an enum title : " + row[4].strip() + "::" + row[1].strip())
+									#print("is an enum title : " + row[4].strip + "::" + row[1].strip)
 									@last_enum_name = get_last_enum_name(row)
 									column = [
 										@last_enum_name, 
-										row[3].strip(),
-										get_data_type(row[2].strip()), 
+										row[3].strip,
+										get_data_type(row[2].strip), 
 										description, 
-										@last_enum_name
+										@last_enum_name,
+										{
+											name: @last_enum_name,
+											oid: row[3].strip,
+											type: get_data_type(row[2].strip),
+											description: description,
+											valuemap: @last_enum_name
+										}
 									]
-									if @last_discovery_rule_name == ""
-										@last_discovery_rule_name = row[4].strip() + "::" + row[5].strip()
+									if @last_discovery_rule_name.empty?
+										@last_discovery_rule_name = row[4].strip + "::" + row[5].strip
 										unless @discovery_rules.include?(@last_discovery_rule_name)
 											@discovery_rules[@last_discovery_rule_name] = []
 											#print("need to create discovery rule")
 											discovery_rule = [
-												row[4].strip() + "::" + row[5].strip(), 
-												row[3].strip(), 
+												row[4].strip + "::" + row[5].strip, 
+												row[3].strip, 
 												[], 
 												description
 											]
@@ -211,22 +245,34 @@ module SNMP2Zabbix
 									# print(row)
 									column = [
 										get_last_enum_name(row),
-										row[3].strip(), 
-										get_data_type(row[2].strip()), 
-										description
+										row[3].strip, 
+										get_data_type(row[2].strip), 
+										description,
+										{
+											name: get_last_enum_name(row),
+											oid: row[3].strip,
+											type: get_data_type(row[2].strip),
+											description: description
+										}
 									]
 									# print(description)
 									# print(len(@discovery_rules[@last_discovery_rule_name][0][2]))
 									if @last_discovery_rule_name.empty?
-										@last_discovery_rule_name = row[4].strip() + "::" + row[5].strip()
+										@last_discovery_rule_name = row[4].strip + "::" + row[5].strip
 										unless @discovery_rules.include? @last_discovery_rule_name
 											@discovery_rules[@last_discovery_rule_name] = []
 											#print("need to create discovery rule")
 											discovery_rule = [
-												row[4].strip() + "::" + row[5].strip(), 
-												row[3].strip(), 
+												row[4].strip + "::" + row[5].strip, 
+												row[3].strip, 
 												[], 
-												description
+												description,
+												{
+													name: row[4].strip + "::" + row[5].strip,
+													oid: row[3].strip,
+													array: [],
+													description: description
+												}
 											]
 											@discovery_rules[@last_discovery_rule_name] << discovery_rule
 										end
@@ -264,7 +310,7 @@ module SNMP2Zabbix
 		# TODO
 		@scalars = scalars
 		@enums = enums
-		@discovery_rules = {} #discovery_rules
+		@discovery_rules = discovery_rules
 		# puts 
 		# puts 
 		# puts 
@@ -305,9 +351,9 @@ module SNMP2Zabbix
 
 		discovery_rules_json = [] 
 		if @discovery_rules&.keys&.size&.positive?
-			snmp_oids = ""
 
 			discovery_rules_json = @discovery_rules&.keys&.map do |name|
+				snmp_oids = ""
 				#TODO: WTF
 				# puts @discovery_rules[name][0][2].size
 				dr = @discovery_rules[name][0]
@@ -369,8 +415,8 @@ module SNMP2Zabbix
 					"name" => name,
 					"mappings" => @enums[name].map { |mapping|
 						{
-							"newvalue" => mapping[0],
-							"value" => mapping[1] 
+							"newvalue" => mapping.last[:new_value],
+							"value" => mapping.last[:old_value] 
 						}
 					}
 				}
