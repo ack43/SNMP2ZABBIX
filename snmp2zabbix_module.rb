@@ -118,7 +118,6 @@ module SNMP2Zabbix
 		@last_discovery_rule_name = ""  # the one that is being built now
 
 		it = mib2c_data.scan /\*\*\* (.*?[^\*\*\*]*?) \*\*\*/sm
-		puts it.count
 
 		it.each do |l|
 			line = l[0]
