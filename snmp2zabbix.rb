@@ -20,6 +20,7 @@ end
 
 
 mibdirs = ARGV[3..-1]
+puts 'mibdirs.inspect'
 puts mibdirs.inspect
 
 
@@ -32,7 +33,7 @@ mib2c_structure = SNMP2Zabbix.mib2c_data_scan mib2c_data
 # puts mib2c_structure.keys.map { |k| 
 # 	# puts
 # 	# puts mib2c_structure[k]
-# 	"#{k} -> #{mib2c_structure[k].length} (#{mib2c_structure[k].keys})" rescue 'niil' 
+# 	"#{k} -> #{mib2c_structure[k].length} (#{mib2c_structure[k].keys})" rescue 'nil' 
 # }.join(" ")
 # puts 
 # puts mib2c_structure[:discovery_rules]
@@ -52,14 +53,14 @@ when 'json'
 	SNMP2Zabbix.construct_json **mib2c_structure
 when 'xml'
 	puts 'construct xml'
-	SNMP2Zabbix.construct_xml **mib2c_structure
+	SNMP2Zabbix.construct_xml(**mib2c_structure).to_xml
 end
 puts _format.inspect
 
 
 if ARGV.count < 3
 	File.open("template_" + mib_name + ".xml", "w") do |xml_file|
-		xml_file.write(output&.to_xml)
+		xml_file.write(output)
 	end
 
 elsif ARGV[2] == '-o'

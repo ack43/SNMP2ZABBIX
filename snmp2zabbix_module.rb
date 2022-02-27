@@ -67,7 +67,7 @@ module SNMP2Zabbix
 	def self.get_mib2c_command(mib_file, base_oid, mibdirs: '', snmp2zabbix_conf: get_snmp2zabbix_conf)
 		mib_path = File.expand_path("..", mib_file).to_s
 		mibs_env = 'MIBS="+' + mib_file + '"'
-		mibdirs_env = 'MIBDIRS="+' + File.expand_path("..", mib_file).to_s + ':' + mibdirs + '"'
+		mibdirs_env = 'MIBDIRS="+' + File.expand_path("..", mib_file).to_s + ':' + mibdirs.to_s + '"'
 		mib2c_command = "#{mibs_env} #{mibdirs_env} mib2c -c #{snmp2zabbix_conf} #{base_oid}"
 		# mib2c_command = "pwd"
 		return mib2c_command
@@ -103,7 +103,7 @@ module SNMP2Zabbix
 
 	def self.remove_colons(s); s.gsub("::", " "); end
 
-	def self.get_last_enum_name(row); row[4].strip + "::" + row[1].strip; end
+	def self.get_enum_name(row); row[4].strip + "::" + row[1].strip; end
 
 
 
@@ -149,7 +149,7 @@ module SNMP2Zabbix
 								# puts 'scalar'
 								# print("scaler:\t" + row[4].strip + "::" +
 								#       row[1].strip + "\t" + row[3].strip + ".0")
-								@last_enum_name = get_last_enum_name(row)
+								@last_enum_name = get_enum_name(row)
 								scalar = [
 									@last_enum_name, 
 									"#{row[3].strip}.0", 
@@ -167,40 +167,41 @@ module SNMP2Zabbix
 							when "table"
 								# print("table:\t" + row[4].strip + "::" +
 								#       row[1].strip + "\t" + row[3].strip)
-								@last_enum_name = get_last_enum_name(row)
+								enum_name = get_enum_name(row)
 								discovery_rule = [
-									@last_enum_name, 
+									enum_name, 
 									row[3].strip, 
 									[], 
 									description,
+									nil,
 									{
-										name: @last_enum_name,
+										name: enum_name,
 										oid: "#{row[3].strip}.0",
 										array: [],
 										description: description
 									}
 								]
 								# @discovery_rules[@last_enum_name] = [] unless @discovery_rules.include?(@last_enum_name)
-								@discovery_rules[@last_enum_name] ||= []
-								@discovery_rules[@last_enum_name] << discovery_rule
-								@last_discovery_rule_name = @last_enum_name
+								@discovery_rules[enum_name] ||= []
+								@discovery_rules[enum_name] << discovery_rule
+								@last_discovery_rule_name = enum_name
 		
 							when "enum"
 								 unless @last_enum_name.empty?
 									# print("enum:\t" + row[1].strip + "=" + row[2].strip)
 									# @enums[@last_enum_name] = [] unless @enums.include? @last_enum_name
 									@enums[@last_enum_name] ||= []
-									@enums[@last_enum_name] << [row[1].strip, row[2].strip, {
-										new_value: row[1].strip,
-										old_value: row[2].strip
-									}]
-									#print("enum " + @last_enum_name + " " + row[1].strip + " " + row[2].strip)
 								end
+								@enums[@last_enum_name] << [row[1].strip, row[2].strip, {
+									new_value: row[1].strip,
+									old_value: row[2].strip
+								}]
+								#print("enum " + @last_enum_name + " " + row[1].strip + " " + row[2].strip)
 		
 							when "index"
 								# print(
 								#     "index:\t" + row[4].strip + "::" + row[1].strip + "\t" + row[3].strip)
-								@last_enum_name = get_last_enum_name(row)
+								@last_enum_name = get_enum_name(row)
 		
 							when "nonindex"
 							# when "index", "nonindex"
@@ -209,7 +210,7 @@ module SNMP2Zabbix
 								if row[7].to_i == 1
 									# print(row)
 									#print("is an enum title : " + row[4].strip + "::" + row[1].strip)
-									@last_enum_name = get_last_enum_name(row)
+									@last_enum_name = get_enum_name(row)
 									column = [
 										@last_enum_name, 
 										row[3].strip,
@@ -233,7 +234,15 @@ module SNMP2Zabbix
 												row[4].strip + "::" + row[5].strip, 
 												row[3].strip, 
 												[], 
-												description
+												description,
+												nil,
+												{
+													name: row[4].strip + "::" + row[5].strip,
+													oid: row[3].strip,
+													array: [],
+													description: description,
+													valuemap: nil
+												}
 											]
 											@discovery_rules[@last_discovery_rule_name] << discovery_rule
 										end
@@ -243,15 +252,17 @@ module SNMP2Zabbix
 								else
 									# print(row)
 									column = [
-										get_last_enum_name(row),
+										get_enum_name(row),
 										row[3].strip, 
 										get_data_type(row[2].strip), 
 										description,
+										nil,
 										{
-											name: get_last_enum_name(row),
+											name: get_enum_name(row),
 											oid: row[3].strip,
 											type: get_data_type(row[2].strip),
-											description: description
+											description: description, 
+											valuemap: nil
 										}
 									]
 									# print(description)
@@ -266,11 +277,13 @@ module SNMP2Zabbix
 												row[3].strip, 
 												[], 
 												description,
+												nil,
 												{
 													name: row[4].strip + "::" + row[5].strip,
 													oid: row[3].strip,
 													array: [],
-													description: description
+													description: description,
+													valuemap: nil
 												}
 											]
 											@discovery_rules[@last_discovery_rule_name] << discovery_rule
@@ -351,6 +364,7 @@ module SNMP2Zabbix
 		discovery_rules_json = [] 
 		if @discovery_rules&.keys&.size&.positive?
 
+			puts @discovery_rules.inspect
 			discovery_rules_json = @discovery_rules&.keys&.map do |name|
 				snmp_oids = ""
 				#TODO: WTF
@@ -369,10 +383,12 @@ module SNMP2Zabbix
 					'type' => "SNMP_AGENT",
 
 					'item_prototypes' => dr[2]&.map { |item_proto|
-						snmpoid2_append = "{##{item_proto[0].split("::")[1].upcase}},#{item_proto[1]},"
+						# puts 'item_proto.inspect'
+						# puts item_proto.inspect
+						snmpoid2_append = "{##{item_proto[0].split("::")[1].upcase.strip}},#{item_proto[1].strip},"
 						snmp_oids += snmpoid2_append if (snmp_oids + snmpoid2_append).size < 501
 
-						valuemap = item_proto[4] ? {'name' => item_proto[4]} : nil
+						valuemap = (item_proto[4].nil? || item_proto[4].empty?) ? nil : {'name' => item_proto[4]}
 
 						{
 							'uuid' => get_uuid,
@@ -380,6 +396,7 @@ module SNMP2Zabbix
 							# 'type' => "SNMPV2",
 							'type' => "SNMP_AGENT",
 							'description' => item_proto[3],
+							'status' => "DISABLED",
 
 							# 'applications' => [
 							# 	{'name' => @mib_name}
@@ -564,6 +581,7 @@ module SNMP2Zabbix
 														item_prototype.send :name, "#{item_proto[0]}[{#SNMPINDEX}]"
 														item_prototype.send :type, "SNMPV2"
 														item_prototype.send :description, item_proto[3]
+														item_prototype.send :status, "DISABLED"
 
 														item_prototype.send :applications do |applications|
 															applications.send :application do |application|
@@ -599,16 +617,11 @@ module SNMP2Zabbix
 								end #@discovery_rules.keys.each do |name|
 							end # discovery_rules
 						end #if @discovery_rules&.size > 0
-
-
-
 					end
 				end
 				
 			end
 		end
 	end
-
-
-
+	
 end
