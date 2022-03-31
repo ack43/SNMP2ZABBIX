@@ -34,15 +34,30 @@ module SNMP2Zabbix
 	"""
 
 	
+	# DATATYPES = {
+	# 	"U_LONG" 		=> "UNSIGNED",  # translates to Numeric (unsigned) in Zabbix
+	# 	"U64" 			=> "UNSIGNED",  # translates to Numeric (unsigned) in Zabbix
+	# 	"OID" 			=> "CHAR",
+	# 	"U_CHAR" 		=> "CHAR",
+	# 	# "LONG" 		=> "FLOAT",
+	# 	"LONG" 			=> "UNSIGNED",
+	# 	# "CHAR" 		=> "TEXT",
+	# 	"CHAR" 			=> "CHAR",
+	# 	"IN_ADDR_T" => "TEXT"
+	# }
+	## SAFE
 	DATATYPES = {
-		"U_LONG": "",  # translates to Numeric (unsigned) in Zabbix
-		"U64": "",  # translates to Numeric (unsigned) in Zabbix
-		"OID": "CHAR",
-		"U_CHAR": "CHAR",
-		"LONG": "FLOAT",
-		"CHAR": "TEXT",
-		"IN_ADDR_T": "TEXT"
+		"U_LONG" 		=> "UNSIGNED",  # translates to Numeric (unsigned) in Zabbix
+		"U64" 			=> "UNSIGNED",  # translates to Numeric (unsigned) in Zabbix
+		"OID" 			=> "CHAR",
+		"U_CHAR" 		=> "CHAR",
+		"LONG" 		=> "FLOAT",
+		# "LONG" 			=> "UNSIGNED",
+		"CHAR" 		=> "TEXT",
+		# "CHAR" 			=> "CHAR",
+		"IN_ADDR_T" => "TEXT"
 	}
+
 
 	def self.get_snmp2zabbix_conf(path = __FILE__)
 		
@@ -91,6 +106,7 @@ module SNMP2Zabbix
 
 
 	def self.get_data_type(s)
+		s.strip!
 		data_type = "TEXT"
 		data_type = DATATYPES[s.upcase] if DATATYPES.keys.include?(s.upcase)
 			
@@ -98,6 +114,7 @@ module SNMP2Zabbix
 		# 	print("Unhandled data type [" + s + "] so assigning TEXT")
 		
 		# if data type is INTEGER or other unsigned int, then don't create the node since zabbix will assign it the default which is already unsigned int
+		puts "get_data_type - #{s} => #{data_type}"
 		data_type.size > 0 ? data_type : nil
 	end
 
@@ -364,7 +381,7 @@ module SNMP2Zabbix
 		discovery_rules_json = [] 
 		if @discovery_rules&.keys&.size&.positive?
 
-			puts @discovery_rules.inspect
+			# puts @discovery_rules.inspect
 			discovery_rules_json = @discovery_rules&.keys&.map do |name|
 				snmp_oids = ""
 				#TODO: WTF
