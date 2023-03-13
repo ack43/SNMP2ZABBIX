@@ -114,7 +114,7 @@ module SNMP2Zabbix
 		# 	print("Unhandled data type [" + s + "] so assigning TEXT")
 		
 		# if data type is INTEGER or other unsigned int, then don't create the node since zabbix will assign it the default which is already unsigned int
-		puts "get_data_type - #{s} => #{data_type}"
+		# puts "get_data_type - #{s} => #{data_type}"
 		data_type.size > 0 ? data_type : nil
 	end
 
