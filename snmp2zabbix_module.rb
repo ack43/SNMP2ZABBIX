@@ -7,9 +7,10 @@ def get_uuid; SecureRandom.uuid.gsub("-", ""); end
 
 module SNMP2Zabbix
 	
-	MIB2C_CONFIG = """#Copyright 2020 Sean Bradley https://sbcode.net/zabbix/
-	#Licensed under the Apache License, Version 2.0
-	#@open -@
+	# MIB2C_CONFIG = """#Copyright 2020 Sean Bradley https://sbcode.net/zabbix/
+	# #Licensed under the Apache License, Version 2.0
+	MIB2C_CONFIG = """
+	@open -@
 	@foreach $s scalar@
 	*** scalar, $s, $s.decl, $s.objectID, $s.module, $s.parent, $s.subid, $s.enums, \"$s.description\" ***
 			@foreach $LABEL, $VALUE enum@
@@ -32,6 +33,84 @@ module SNMP2Zabbix
 			@end@
 	@end@
 	"""
+
+
+	MIB2C_YAML_CONFIG = """
+@open -@
+scalars:
+@foreach $s scalar@
+  - type: scalar
+    name: $s
+    value_type: $s.decl
+    oid: $s.objectID
+    module: $s.module
+    parent: $s.parent
+    subid: $s.subid
+    enums: $s.enums
+    description: >
+      $s.description
+    
+    enum:
+    @foreach $LABEL, $VALUE enum@
+      - label: $LABEL
+        value: $VALUE
+    @end@
+@end@
+
+tables:
+@foreach $t table@
+  - type: table
+    name: $t
+    value_type: $t.decl
+    oid: $t.objectID
+    module: $t.module
+    parent: $t.parent
+    subid: $t.subid
+    enums: $t.enums
+    description: >
+      $t.description
+    
+    index: 
+    @foreach $i index@
+      - type: index
+        name: $i
+        value_type: $i.decl
+        oid: $i.objectID
+        module: $i.module
+        parent: $i.parent
+        subid: $i.subid
+        enums: $i.enums
+        description: >
+          $i.description
+        
+        enum:
+        @foreach $LABEL, $VALUE enum@
+          - label: $LABEL
+            value: $VALUE
+        @end@
+    @end@
+    
+    nonindex: 
+    @foreach $i index@
+      - type: nonindex
+        name: $i
+        value_type: $i.decl
+        oid: $i.objectID
+        module: $i.module
+        parent: $i.parent
+        subid: $i.subid
+        enums: $i.enums
+        description: >
+          $i.description
+        
+        enum:
+        @foreach $LABEL, $VALUE enum@
+          - label: $LABEL
+            value: $VALUE
+        @end@
+    @end@
+@end@
+"""
 
 	
 	# DATATYPES = {
@@ -59,21 +138,21 @@ module SNMP2Zabbix
 	}
 
 
-	def self.get_snmp2zabbix_conf(path = __FILE__)
+	def self.get_snmp2zabbix_conf(path = __FILE__, filename = 'snmp2zabbix.conf', default_data = MIB2C_CONFIG)
 		
-		local_snmp2zabbix_conf = File.dirname(File.expand_path(path)) + '/snmp2zabbix.conf'
+		local_snmp2zabbix_conf = File.dirname(File.expand_path(path)) + "/#{filename}"
 		snmp2zabbix_conf = local_snmp2zabbix_conf
 
-		unless File.exists?("snmp2zabbix.conf")
+		unless File.exists?(filename)
 			unless File.exists?(local_snmp2zabbix_conf)
 
-				File.open("snmp2zabbix.conf", "w") do |f|
-					f.write(MIB2C_CONFIG)
+				File.open(filename, "w") do |f|
+					f.write(default_data)
 				end
-				snmp2zabbix_conf = 'snmp2zabbix.conf'
+				snmp2zabbix_conf = filename
 			end
 		else
-			snmp2zabbix_conf = 'snmp2zabbix.conf'
+			snmp2zabbix_conf = filename
 		end
 		
 		return snmp2zabbix_conf
@@ -81,7 +160,7 @@ module SNMP2Zabbix
 
 	def self.get_mib2c_command(mib_file, base_oid, mibdirs: '', snmp2zabbix_conf: get_snmp2zabbix_conf)
 		mib_path = File.expand_path("..", mib_file).to_s
-		mibs_env = 'MIBS="+' + mib_file + '"'
+		mibs_env = mib_file ? 'MIBS="+' + mib_file + '"' : "MIBS=ALL"
 		mibdirs_env = 'MIBDIRS="+' + File.expand_path("..", mib_file).to_s + ':' + mibdirs.to_s + '"'
 		mib2c_command = "#{mibs_env} #{mibdirs_env} mib2c -c #{snmp2zabbix_conf} #{base_oid}"
 		# mib2c_command = "pwd"
@@ -94,12 +173,9 @@ module SNMP2Zabbix
 		# puts mibdirs.inspect
 		mib2c_data = ''
 		_mib2c = get_mib2c_command(mib_file, base_oid, mibdirs: mibdirs, snmp2zabbix_conf: snmp2zabbix_conf)
-		# puts _mib2c
 		IO.popen(_mib2c, "r") { |f|
-			mib2c_data = f.read
+			mib2c_data = f.read rescue nil
 		} rescue nil
-		# puts 'mib2c_data'
-		# puts mib2c_data
 		return mib2c_data
 	end
 
@@ -265,6 +341,10 @@ module SNMP2Zabbix
 										end
 									end
 									@discovery_rules[@last_discovery_rule_name][0][2] << column
+									begin
+										@discovery_rules[@last_discovery_rule_name][0].last[:array] << column
+									rescue
+									end
 		
 								else
 									# print(row)
@@ -307,6 +387,10 @@ module SNMP2Zabbix
 										end
 									end
 									@discovery_rules[@last_discovery_rule_name][0][2] << column
+									begin
+										@discovery_rules[@last_discovery_rule_name][0].last[:array] << column
+									rescue
+									end
 								end
 							end
 							# else:
@@ -353,18 +437,19 @@ module SNMP2Zabbix
 		# if @scalars&.size > 0
 		if @scalars&.size&.positive?
 			scalars_json = @scalars&.map do |s|
+				ss = s.last
 				{
 					'uuid' => get_uuid,
-					'name' => s[0],
+					'name' => ss[:name], #s[0],
 					# 'type' => "SNMPV2",
 					'type' => "SNMP_AGENT",
 					# 'snmp_community' => "{$SNMP_COMMUNITY}",
-					'snmp_oid' => s[1],
-					'key' => s[1],
+					'snmp_oid' => ss[:oid], #s[1],
+					'key' => ss[:oid], #s[1],
 
-					'value_type' => s[2],
+					'value_type' => ss[:type], #s[2],
 
-					'description' => s[3],
+					'description' => ss[:description], #s[3],
 					'delay' => "1h",
 					'history' => "2w",
 					'trends' => "0",
@@ -387,32 +472,40 @@ module SNMP2Zabbix
 				#TODO: WTF
 				# puts @discovery_rules[name][0][2].size
 				dr = @discovery_rules[name][0]
+				drr = dr.last
+
 				{
 					'uuid' => get_uuid,
 					'name' => name,
-					'description' => dr[3],
+					'description' => drr[:description], #dr[3],
 					'delay' => '3600',
-					'key' => dr[1],
+					'key' => drr[:oid], #dr[1],
 					# 'snmp_oid' => dr[1],
 					# 'port' => "{$SNMP_PORT}",
 					# 'snmp_community' => "{$SNMP_COMMUNITY}",
 					# 'type' => "SNMPV2",
 					'type' => "SNMP_AGENT",
 
-					'item_prototypes' => dr[2]&.map { |item_proto|
+					# 'item_prototypes' => dr[2]&.map { |item_proto|
+					'item_prototypes' => drr[:array]&.map { |item_proto|
+						item_proto_obj = item_proto.last
 						# puts 'item_proto.inspect'
 						# puts item_proto.inspect
-						snmpoid2_append = "{##{item_proto[0].split("::")[1].upcase.strip}},#{item_proto[1].strip},"
+						# snmpoid2_append = "{##{item_proto[0].split("::")[1].upcase.strip}},#{item_proto[1].strip},"
+						snmpoid2_append = "{##{item_proto_obj[:name].split("::")[1].upcase.strip}},#{item_proto_obj[:oid].strip},"
 						snmp_oids += snmpoid2_append if (snmp_oids + snmpoid2_append).size < 501
 
-						valuemap = (item_proto[4].nil? || item_proto[4].empty?) ? nil : {'name' => item_proto[4]}
-
+						# valuemap = (item_proto[4].nil? || item_proto[4].empty?) ? nil : {'name' => item_proto[4]}
+						# valuemap = (item_proto_obj[:valuemap].nil? || item_proto_obj[:valuemap].empty?) ? nil : {'name' => item_proto_obj[:valuemap]}
+						valuemap = item_proto_obj[:valuemap]
+						valuemap = {'name' => valuemap} if !valuemap.nil? && !valuemap.empty?
+						
 						{
 							'uuid' => get_uuid,
-							'name' => "#{item_proto[0]}[{#SNMPINDEX}]",
+							'name' => "#{item_proto_obj[:name]}[{#SNMPINDEX}]", #"#{item_proto[0]}[{#SNMPINDEX}]",
 							# 'type' => "SNMPV2",
 							'type' => "SNMP_AGENT",
-							'description' => item_proto[3],
+							'description' => item_proto_obj[:description], #item_proto[3],
 							'status' => "DISABLED",
 
 							# 'applications' => [
@@ -421,21 +514,25 @@ module SNMP2Zabbix
 							
 							# 'port' => "{$SNMP_PORT}",
 							# 'snmp_community' => "{$SNMP_COMMUNITY}",
-							'key' => "#{item_proto[1]}[{#SNMPINDEX}]",
-							'snmp_oid' => "#{item_proto[1]}.{#SNMPINDEX}",
+
+							# 'key' => "#{item_proto[1]}[{#SNMPINDEX}]",
+							# 'snmp_oid' => "#{item_proto[1]}.{#SNMPINDEX}",
+							'key' => "#{item_proto_obj[:oid]}[{#SNMPINDEX}]",
+							'snmp_oid' => "#{item_proto_obj[:oid]}.{#SNMPINDEX}",
 
 							'delay' => "1h",
 							'history' => "2w",
 							'trends' => "0",
 
-							'value_type' => item_proto[2],
+							'value_type' => item_proto_obj[:type], #item_proto[2],
 
 							'valuemap' => valuemap
 						}.compact # </item_prototype>
 					}, # item_prototypes: dr[2].map { |item_proto|
 
 					# 'snmp_oid' => (snmp_oids.empty? ? nil : "discovery[#{snmp_oids[0...-1]}]") 
-					'snmp_oid' => (snmp_oids.empty? ? dr[1] : "discovery[#{snmp_oids[0...-1]}]") 
+					# 'snmp_oid' => (snmp_oids.empty? ? dr[1] : "discovery[#{snmp_oids[0...-1]}]") 
+					'snmp_oid' => (snmp_oids.empty? ? drr[:oid] : "discovery[#{snmp_oids[0...-1]}]") 
 				}.compact # </discovery_rule>
 			end #discovery_rules_json = @discovery_rules.keys.map do |name|
 		end
@@ -474,7 +571,6 @@ module SNMP2Zabbix
 							{'name' => "Templates"}
 						],
 
-						'items' => scalars_json,
 
 						'macros' => [
 							{
@@ -486,6 +582,9 @@ module SNMP2Zabbix
 								'value' => 'public'
 							}
 						],
+
+
+						'items' => scalars_json,
 
 						'discovery_rules' => discovery_rules_json,
 
